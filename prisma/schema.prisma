@@ -1,0 +1,32 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ==== User Entity ====
+// Required fields: firstName, lastName, email, password, deletedAt, createdAt, updatedAt
+// - email must be unique
+// - password should be stored encrypted (handled by bcrypt at the application layer)
+// - deletedAt is used for soft deletes; a null value means the user is not deleted, while a timestamp value indicates they are.
+// - createdAt defaults to the current time upon creation.
+// - updatedAt is automatically updated on modification.
+model User {
+  id        String   @id @default(uuid())
+  firstName String
+  lastName  String
+  email     String   @unique
+  password  String
+  deletedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
