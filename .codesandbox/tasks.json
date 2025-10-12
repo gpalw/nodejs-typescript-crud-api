@@ -1,0 +1,53 @@
+{
+  // These tasks will run in order when initializing your CodeSandbox project.
+  "setupTasks": [
+    {
+      "command": "npm install",
+      "name": "Installing Dependencies"
+    }
+  ],
+
+  // These tasks can be run from CodeSandbox. Running one will open a log in the app.
+  "tasks": {
+    "dev": {
+      "name": "dev",
+      "command": "npm run dev",
+      "runAtStart": true
+    },
+    "build": {
+      "name": "build",
+      "command": "npm run build",
+      "runAtStart": false
+    },
+    "migrate:deploy": {
+      "name": "migrate:deploy",
+      "command": "npm run migrate:deploy",
+      "runAtStart": false
+    },
+    "prestart": {
+      "name": "prestart",
+      "command": "npm run prestart",
+      "runAtStart": false
+    },
+    "start": {
+      "name": "start",
+      "command": "npm run start",
+      "runAtStart": false
+    },
+    "test": {
+      "name": "test",
+      "command": "npm run test",
+      "runAtStart": false
+    },
+    "prisma:generate": {
+      "name": "prisma:generate",
+      "command": "npm run prisma:generate",
+      "runAtStart": false
+    },
+    "prisma:migrate": {
+      "name": "prisma:migrate",
+      "command": "npm run prisma:migrate",
+      "runAtStart": false
+    }
+  }
+}

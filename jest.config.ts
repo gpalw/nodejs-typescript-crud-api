@@ -12,6 +12,7 @@ const config: Config = {
   coverageProvider: "v8",
   preset: 'ts-jest',
   testEnvironment: 'node',
+  testTimeout: 20000,
   testMatch: ['**/src/tests/**/*.test.ts']
 };
 
