@@ -1,34 +1,52 @@
 import { prisma } from '../db/prisma';
 import { hashPassword, verifyPassword } from '../utils/password';
 import { sanitizeUser } from '../utils/sanitize';
+import jwt from 'jsonwebtoken';
 import { createUserSchema, updateUserSchema } from '../validators/user.validator';
 import { HttpError } from '../utils/errors';
+import { UserQueryOptions } from '../types/user.types';
+import { getPagination } from '../utils/pagination.utils';
 
 export const userService = {
-    async createUser(data: { firstName: string; lastName: string; email: string; password: string; }) {
-
-        const parsed = createUserSchema.safeParse(data);
-        if (!parsed.success) {
-            const message = parsed.error.issues.map(i => i.message).join(', ');
-            throw new HttpError(400, message);
+    async loginUser(email: string, plainPassword: string) {
+        const user = await prisma.user.findFirst({
+            where: { email: email, deletedAt: null },
+        });
+        if (!user) {
+            throw new HttpError(401, 'Invalid email or password');
         }
 
-        const { firstName, lastName, email, password } = parsed.data;
+        const valid = await verifyPassword(plainPassword, user.password);
+        if (!valid) {
+            throw new HttpError(401, 'Invalid credentials');
+        }
 
-        const existing = await prisma.user.findUnique({ where: { email } });
+        const payload = sanitizeUser(user);
+        const secret = process.env.JWT_SECRET || 'YOUR_SECRET_KEY_REPLACE_THIS';
+
+        const token = jwt.sign(payload, secret, {
+            expiresIn: '1d',
+        });
+        return token;
+    },
+
+
+    async createUser(data: { firstName: string; lastName: string; email: string; password: string; }) {
+
+        const existing = await prisma.user.findUnique({ where: { email: data.email } });
         if (existing) {
             throw new HttpError(409, 'Email already exists');
         }
 
-        const hashed = await hashPassword(password);
-        const user = await prisma.user.create({ data: { firstName, lastName, email, password: hashed } });
+        const hashed = await hashPassword(data.password);
+        const user = await prisma.user.create({ data: { firstName: data.firstName, lastName: data.lastName, email: data.email, password: hashed } });
         return sanitizeUser(user);
     },
 
-    async getUsers(email?: string) {
-        if (email) {
+    async getUsers(options: UserQueryOptions) {
+        if (options.email) {
             const user = await prisma.user.findFirst({
-                where: { email, deletedAt: null },
+                where: { email: options.email, deletedAt: null },
             });
 
             if (!user) {
@@ -36,19 +54,52 @@ export const userService = {
             }
             return sanitizeUser(user);
         }
-        const users = await prisma.user.findMany({
-            where: { deletedAt: null },
-        });
-        return users.map(sanitizeUser);
+
+        // findMany
+        const whereClause: any = {
+            deletedAt: null, // Basic
+        };
+
+        if (options.firstName) {
+            whereClause.firstName = {
+                contains: options.firstName,
+                mode: 'insensitive',
+            };
+        }
+
+        if (options.lastName) {
+            whereClause.lastName = {
+                contains: options.lastName,
+                mode: 'insensitive',
+            };
+        }
+
+        const { page, limit, skip } = getPagination(options.pagination);
+        const [users, totalUsers] = await prisma.$transaction([
+            // first query
+            prisma.user.findMany({
+                where: whereClause,
+                skip: skip,
+                take: limit,
+            }),
+            // second query
+            prisma.user.count({
+                where: whereClause,
+            })
+        ]);
+
+        return {
+            data: users.map(sanitizeUser),
+            pagination: {
+                page,
+                limit,
+                total: totalUsers,
+                totalPages: Math.ceil(totalUsers / limit),
+            }
+        };
     },
 
     async updateUser(email: string, data: { firstName?: string; lastName?: string; email?: string }) {
-        const parsed = updateUserSchema.safeParse(data);
-        if (!parsed.success) {
-            const message = parsed.error.issues.map(i => i.message).join(', ');
-            throw new HttpError(400, message);
-        }
-
         const allowed = ['firstName', 'lastName', 'email'] as const;
         const keys = Object.keys(data);
         if (keys.length === 0) throw new HttpError(400, 'No updatable fields provided');
