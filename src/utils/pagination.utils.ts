@@ -8,10 +8,12 @@ export interface PaginationResult {
 
 export function getPagination(pagination: PaginationParams | undefined): PaginationResult {
 
-    const page = pagination?.page || 1;
-    const limit = pagination?.limit || 10;
+    const page = pagination?.page ?? 1;
+    const limit = pagination?.limit ?? 10;
 
-    const skip = (page - 1) * limit;
+    const safePage = Math.max(page, 1);
+    const safeLimit = Math.max(limit, 1);
+    const skip = (safePage - 1) * safeLimit;
 
-    return { page, limit, skip };
+    return { page: safePage, limit: safeLimit, skip };
 }

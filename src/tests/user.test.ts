@@ -1,6 +1,8 @@
 import request from 'supertest';
 import { prisma } from '../db/prisma';
 import app from '../app';
+import { id } from 'zod/v4/locales';
+import { userService } from '../services/user.service';
 
 // --- Test Data ---
 const testUser = {
@@ -14,6 +16,20 @@ const secondUser = {
     firstName: 'Second',
     lastName: 'User',
     email: 'second@example.com',
+    password: 'Password123!',
+};
+
+const sameFirstNameUser = {
+    firstName: 'Auto',
+    lastName: 'User',
+    email: 'sameFirstNameUser@example.com',
+    password: 'Password123!',
+};
+
+const sameLastNameUser = {
+    firstName: 'Second',
+    lastName: 'Test',
+    email: 'sameLastNameUser@example.com',
     password: 'Password123!',
 };
 
@@ -60,20 +76,102 @@ describe('User API', () => {
     });
 
     // =================================================================
+    //  POST /login
+    // =================================================================
+
+    describe('POST /users/login', () => {
+        it('should login successfully with correct credentials', async () => {
+            await request(app).post('/users').send(testUser);
+            const res = await request(app).post('/users/login').send({
+                email: testUser.email,
+                password: testUser.password,
+            });
+            expect(res.status).toBe(200);
+            expect(res.body.token).toBeDefined();
+        });
+
+        it('should login fail with Email empty', async () => {
+            await request(app).post('/users').send(testUser);
+            const res = await request(app).post('/users/login').send({
+                email: '',
+                password: testUser.password,
+            });
+            expect(res.status).toBe(400);
+            expect(res.body.error).toMatch(/Email and password are required/i);
+        });
+
+        it('should login fail with Password empty', async () => {
+            await request(app).post('/users').send(testUser);
+            const res = await request(app).post('/users/login').send({
+                email: testUser.email,
+                password: '',
+            });
+            expect(res.status).toBe(400);
+            expect(res.body.error).toMatch(/Email and password are required/i);
+        });
+
+        it('should login fail with Email not exists', async () => {
+            await request(app).post('/users').send(testUser);
+            const res = await request(app).post('/users/login').send({
+                email: 'notfound@example.com',
+                password: testUser.password,
+            });
+            expect(res.status).toBe(401);
+            expect(res.body.error).toMatch(/Invalid email or password/i);
+        });
+
+        it('should login fail with Password incorrect', async () => {
+            await request(app).post('/users').send(testUser);
+            const res = await request(app).post('/users/login').send({
+                email: testUser.email,
+                password: 'wrongpassword',
+            });
+            expect(res.status).toBe(401);
+            expect(res.body.error).toMatch(/Invalid credentials/i);
+        });
+    });
+    // =================================================================
     //  GET /users
     // =================================================================
     describe('GET /users', () => {
         it('should return a list of all users', async () => {
             await request(app).post('/users').send(testUser);
             await request(app).post('/users').send(secondUser);
+            const res = await request(app).get('/users').query({ page: 1, limit: 10 });
+            expect(res.status).toBe(200);
+            expect(Array.isArray(res.body.data)).toBe(true);
+            expect(res.body.data.length).toBe(2);
+        });
+
+        it('should return a list of all users without pagination', async () => {
+            await request(app).post('/users').send(testUser);
+            await request(app).post('/users').send(secondUser);
             const res = await request(app).get('/users');
             expect(res.status).toBe(200);
-            expect(Array.isArray(res.body)).toBe(true);
-            expect(res.body.length).toBe(2);
+            expect(Array.isArray(res.body.data)).toBe(true);
+            expect(res.body.data.length).toBe(2);
+        });
+
+        it('should return a list of same first/ last name users', async () => {
+            await request(app).post('/users').send(testUser);
+            await request(app).post('/users').send(secondUser);
+            await request(app).post('/users').send(sameFirstNameUser);
+            await request(app).post('/users').send(sameLastNameUser);
+
+            const res = await request(app).get('/users').query({ firstName: testUser.firstName });
+            expect(res.status).toBe(200);
+            expect(Array.isArray(res.body.data)).toBe(true);
+            expect(res.body.data.length).toBe(2);
+
+            const res2 = await request(app).get('/users').query({ lastName: testUser.lastName });
+            expect(res2.status).toBe(200);
+            expect(Array.isArray(res2.body.data)).toBe(true);
+            expect(res2.body.data.length).toBe(2);
         });
 
         it('should return a single user by email', async () => {
             await request(app).post('/users').send(testUser);
+            await request(app).post('/users').send(secondUser);
             const res = await request(app).get('/users').query({ email: testUser.email });
             expect(res.status).toBe(200);
             expect(res.body.email).toBe(testUser.email);
@@ -132,11 +230,11 @@ describe('User API', () => {
             expect(res.body.error).toMatch(/No updatable fields provided/i);
         });
 
-        it('should return 400 when trying to update disallowed fields', async () => {
-            await request(app).post('/users').send(testUser);
-            const res = await request(app).patch(`/users/${testUser.email}`).send({ password: 'newPassword123!' });
-            expect(res.status).toBe(400);
-            expect(res.body.error).toMatch(/Only firstName, lastName, email can be updated/i);
+        it('should throw if disallowed keys are provided', async () => {
+            const maliciousData = { firstName: 'Test', isAdmin: true };
+            await expect(userService.updateUser(testUser.email, maliciousData as any))
+                .rejects
+                .toThrow('Only firstName, lastName, email can be updated');
         });
 
         it('should return 400 when firstName is updated to an empty string', async () => {
@@ -193,4 +291,3 @@ describe('User API', () => {
         });
     });
 });
-
