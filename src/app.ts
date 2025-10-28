@@ -4,6 +4,7 @@ import cors from 'cors';
 import path from 'path';
 import healthRouter from './routes/health.route';
 import userRouter from './routes/user.route';
+import termsRouter from './routes/terms.route';
 import { errorHandler } from './middlewares/errorHandler';
 
 const app = express();
@@ -12,7 +13,7 @@ app.use(express.json());
 
 app.use('/health', healthRouter);
 app.use('/users', userRouter);
-
+app.use('/terms', termsRouter);
 
 
 app.use(errorHandler);

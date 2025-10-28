@@ -1,5 +1,4 @@
 import { prisma } from '../db/prisma';
-import { HttpError } from '../utils/errors';
 
 export const termsService = {
     async createTerm(data: { author: string; content: string; }) {

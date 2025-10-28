@@ -2,10 +2,10 @@ import { prisma } from '../db/prisma';
 import { hashPassword, verifyPassword } from '../utils/password';
 import { sanitizeUser } from '../utils/sanitize';
 import jwt from 'jsonwebtoken';
-import { createUserSchema, updateUserSchema } from '../validators/user.validator';
 import { HttpError } from '../utils/errors';
 import { UserQueryOptions } from '../types/user.types';
 import { getPagination } from '../utils/pagination.utils';
+import { User } from '@prisma/client';
 
 export const userService = {
     async loginUser(email: string, plainPassword: string) {
@@ -99,12 +99,13 @@ export const userService = {
         };
     },
 
-    async updateUser(email: string, data: { firstName?: string; lastName?: string; email?: string }) {
-        const allowed = ['firstName', 'lastName', 'email'] as const;
+    async updateUser(email: string, data: { firstName?: string; lastName?: string; email?: string; termId?: string; }) {
+        const allowed = ['firstName', 'lastName', 'email', 'termId'] as const;
         const keys = Object.keys(data);
         if (keys.length === 0) throw new HttpError(400, 'No updatable fields provided');
         if (keys.some(k => !allowed.includes(k as any))) {
-            throw new HttpError(400, 'Only firstName, lastName, email can be updated');
+            const allowedKeysString = allowed.join(', ');
+            throw new HttpError(400, `Only ${allowedKeysString} can be updated`);
         }
 
         const user = await prisma.user.findFirst({ where: { email, deletedAt: null } });
@@ -129,6 +130,12 @@ export const userService = {
                 throw new HttpError(409, 'New email already exists');
             }
             updates.email = data.email;
+        }
+
+        // Terms and Conditions handling
+        const validTermId = await validateAndFetchTerms(user, data.termId ?? null);
+        if (validTermId) {
+            updates.termsId = validTermId;
         }
 
         const updated = await prisma.user.update({
@@ -156,3 +163,41 @@ export const userService = {
         return sanitizeUser(deleted);
     },
 };
+async function validateAndFetchTerms(user: User, newTermId: string | null) {
+    if (newTermId === undefined || newTermId === null || user.termsId === newTermId) {
+        return null;
+    }
+
+    if (newTermId.trim() === '') {
+        throw new HttpError(400, 'Term ID cannot be empty');
+    }
+
+    const newTermsPromise = prisma.terms.findUnique({
+        where: { id: newTermId }
+    });
+
+    const currentTermsPromise = user.termsId
+        ? prisma.terms.findUnique({ where: { id: user.termsId } })
+        : Promise.resolve(null);
+
+    const [newTerms, currentTerms] = await Promise.all([
+        newTermsPromise,
+        currentTermsPromise
+    ]);
+
+    if (!newTerms) {
+        throw new HttpError(404, `Terms with ID ${newTermId} not found`);
+    }
+    if (user.termsId && !currentTerms) {
+        throw new HttpError(404, `User's current Terms (ID: ${user.termsId}) not found in database`);
+    }
+
+    if (currentTerms) {
+        // Comparing versions is only required if the user currently has the clause
+        if (newTerms.version <= currentTerms.version) {
+            throw new HttpError(400, `The new terms (v${newTerms.version}) are not newer than the current terms (v${currentTerms.version}).`);
+        }
+    }
+    return newTerms.id;
+}
+
