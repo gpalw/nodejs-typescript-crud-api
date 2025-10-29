@@ -24,9 +24,11 @@
     <div id="root"></div>
 
     <!-- React and Babel for JSX transpilation in the browser -->
+    <script src="https://cdn.jsdelivr.net/npm/jwt-decode@3.1.2/build/jwt-decode.min.js"></script>
     <script src="https://unpkg.com/react@17/umd/react.development.js"></script>
     <script src="https://unpkg.com/react-dom@17/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
 
     <script type="text/babel">
         const { useState, useEffect } = React;
@@ -38,35 +40,53 @@
             const [currentUser, setCurrentUser] = useState(null);
             const [isLoading, setIsLoading] = useState(true);
             const [error, setError] = useState(null);
+            const [currentUserRole, setCurrentUserRole] = useState(null);
+
+            // Pagination state
+            const [pagination, setPagination] = useState({ page: 1, limit: 5, total: 0, totalPages: 1 });
+            const [filters, setFilters] = useState({ firstName: '' });
+            const [filterInput, setFilterInput] = useState('');
 
             // --- API Call Functions ---
+            const { page, limit } = pagination;
+            const { firstName } = filters;
 
             // Fetch all users
             const fetchUsers = async () => {
                 setIsLoading(true);
                 setError(null);
                 try {
-					const token = localStorage.getItem('authToken');
-					if (!token) {
-						window.location.href = '/index.html';
-						return;
-					}
-					
-                    const response = await fetch('/users', {
-						headers: {
-							'Authorization': `Bearer ${token}`
-						}
-					});
+                    const token = localStorage.getItem('authToken');
+                    if (!token) {
+                        window.location.href = '/index.html';
+                        return;
+                    }
+
+                    const query = new URLSearchParams({
+                        page: page,
+                        limit: limit,
+                    });
+                    if (firstName) {
+                        query.append('firstName', firstName);
+                    }
+
+
+                    const response = await fetch(`/users?${query.toString()}`, {
+                        headers: {
+                            'Authorization': `Bearer ${token}`
+                        }
+                    });
                     if (!response.ok) {
-						if (response.status === 401) {
-							 localStorage.removeItem('authToken');
-							 window.location.href = '/index.html';
-							 return;
-						}
+                        if (response.status === 401) {
+                            localStorage.removeItem('authToken');
+                            window.location.href = '/index.html';
+                            return;
+                        }
                         throw new Error(`HTTP error! status: ${response.status}`);
                     }
                     const result = await response.json();
                     setUsers(result.data);
+                    setPagination(result.pagination);
                 } catch (e) {
                     setError('Failed to fetch users. Please ensure the backend service is running.');
                     console.error(e);
@@ -99,7 +119,10 @@
                 try {
                     const response = await fetch(url, {
                         method: method,
-                        headers: { 'Content-Type': 'application/json' },
+                        headers: {
+                            'Content-Type': 'application/json',
+                            ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+                        },
                         body: JSON.stringify(payload),
                     });
                     const result = await response.json();
@@ -136,10 +159,98 @@
                 }
             };
 
+            const handleSearch = () => {
+                // When "Search" is clicked, apply the filter and reset to page 1
+                setPagination(prev => ({ ...prev, page: 1 }));
+                setFilters({ firstName: filterInput });
+            };
+
+            const clearSearch = () => {
+                // Clear the filter and input, and reset to page 1
+                setFilterInput('');
+                setFilters({ firstName: '' });
+                setPagination(prev => ({ ...prev, page: 1 }));
+            };
+
+            const handleNextPage = () => {
+                if (pagination.page < pagination.totalPages) {
+                    // Triggering setPagination will automatically re-run useEffect
+                    setPagination(prev => ({ ...prev, page: prev.page + 1 }));
+                }
+            };
+
+            const handlePrevPage = () => {
+                if (pagination.page > 1) {
+                    setPagination(prev => ({ ...prev, page: prev.page - 1 }));
+                }
+            };
+
+            const handleCreateDemoUsers = async () => {
+                if (!confirm('This will create 50 new demo users. Are you sure?')) {
+                    return;
+                }
+                setIsLoading(true); // 可以复用 isLoading 状态
+                setError(null);
+
+                try {
+                    const token = localStorage.getItem('authToken');
+                    const response = await fetch('/api/init/seed-users?count=50', { // 调用你的新 API
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${token}`
+                        }
+                    });
+
+                    const result = await response.json();
+
+                    if (!response.ok) {
+                        throw new Error(result.message || result.error || `HTTP error! status: ${response.status}`);
+                    }
+
+                    // success! Refresh user list (reset to page 1)
+                    alert(result.message || 'Demo users created successfully!');
+                    if (pagination.page === 1 && filters.firstName === '') {
+                        fetchUsers(); // Refresh manually because setPagination does not trigger useEffect
+                    } else {
+                        // Otherwise, reset filters and pagination to let useEffect refresh automatically
+                        setFilterInput('');
+                        setFilters({ firstName: '' });
+                        setPagination(prev => ({ ...prev, page: 1 }));
+                    }
+                } catch (e) {
+                    setError(e.message || 'Failed to create demo users.');
+                    console.error(e);
+                } finally {
+                    setIsLoading(false);
+                }
+            };
+
             // Fetch users on component mount
             useEffect(() => {
+                const token = localStorage.getItem('authToken');
+                if (token) {
+                    try {
+                        const decodedToken = jwt_decode(token);
+                        if (decodedToken && decodedToken.role) {
+                            // Store the decoded role in state
+                            setCurrentUserRole(decodedToken.role);
+                        } else {
+                            throw new Error("Token missing role information");
+                        }
+                    } catch (error) {
+                        console.error("Failed to decode token:", error);
+                        // If the token is invalid, clean up and redirect to login page
+                        localStorage.removeItem('authToken');
+                        window.location.href = '/index.html';
+                        return; // Stop executing useEffect
+                    }
+                } else {
+                    // If there is no token, redirect to login page
+                    window.location.href = '/index.html';
+                    return; // Stop executing useEffect
+                }
                 fetchUsers();
-            }, []);
+            }, [pagination.page, filters]);
 
             // --- Modal Control Functions ---
             const openModal = (user = null) => {
@@ -161,12 +272,50 @@
                                 <h1 className="text-3xl font-bold bg-gradient-to-r from-purple-400 to-pink-600 bg-clip-text text-transparent">User Management System</h1>
                                 <p className="text-gray-400 mt-1">A simple CRUD application example</p>
                             </div>
+                            <div className="flex space-x-4"> {/* Wrap with flex */}
+                                {/* Conditional rendering of Demo User button */}
+                                {currentUserRole === 'admin' && (
+                                    <button
+                                        onClick={handleCreateDemoUsers}
+                                        disabled={isLoading} // Reuse loading state
+                                        className="bg-yellow-600 hover:bg-yellow-700 text-white font-bold py-2 px-4 rounded-lg shadow-md transition disabled:opacity-50 flex items-center"
+                                        title="Create 50 demo users (Admin Only)"
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M14 10l-2 1m0 0l-2-1m2 1v2.5M20 7l-2 1m2-1l-2-1m2 1v2.5M14 4l-2-1-2 1M4 7l2 1M4 7l2-1M4 7v2.5M12 21l-2-1m2 1l2-1m-2 1v-2.5M6 18l-2-1v-2.5M18 18l2-1v-2.5" /></svg>
+                                        Seed Demo Users
+                                    </button>
+                                )}
+                                <button
+                                    onClick={() => openModal()}
+                                    className="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded-lg shadow-md transition-transform transform hover:scale-105 flex items-center"
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" /></svg>
+                                    Create User
+                                </button>
+                            </div>
+
+
+                        </div>
+
+                        <div className="mb-6 flex space-x-4">
+                            <input
+                                type="text"
+                                placeholder="Filter by first name..."
+                                value={filterInput}
+                                onChange={(e) => setFilterInput(e.target.value)}
+                                className="flex-grow px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                            />
                             <button
-                                onClick={() => openModal()}
-                                className="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded-lg shadow-md transition-transform transform hover:scale-105 flex items-center"
+                                onClick={handleSearch}
+                                className="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded-lg transition"
                             >
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" /></svg>
-                                Create User
+                                Search
+                            </button>
+                            <button
+                                onClick={clearSearch}
+                                className="bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 px-4 rounded-lg transition"
+                            >
+                                Clear
                             </button>
                         </div>
 
@@ -216,6 +365,30 @@
                                 </table>
                             )}
                         </div>
+
+                        {!isLoading && pagination && pagination.total > 0 && (
+                            <div className="flex justify-between items-center mt-6">
+                                <span className="text-sm text-gray-400">
+                                    Page {pagination.page} of {pagination.totalPages} (Total: {pagination.total})
+                                </span>
+                                <div className="space-x-2">
+                                    <button
+                                        onClick={handlePrevPage}
+                                        disabled={pagination.page <= 1}
+                                        className="bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-lg transition disabled:opacity-50"
+                                    >
+                                        &larr; Previous
+                                    </button>
+                                    <button
+                                        onClick={handleNextPage}
+                                        disabled={pagination.page >= pagination.totalPages}
+                                        className="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded-lg transition disabled:opacity-50"
+                                    >
+                                        Next &rarr;
+                                    </button>
+                                </div>
+                            </div>
+                        )}
                     </div>
 
                     {/* --- Create/Edit Modal --- */}
@@ -223,7 +396,7 @@
                 </div>
             );
         }
-		// --- Reusable Input Field Component ---
+        // --- Reusable Input Field Component ---
         function InputField({ label, name, type = 'text', value, onChange, required = false, disabled = false }) {
             return (
                 <div>
@@ -285,7 +458,7 @@
             );
         }
 
-        
+
 
         ReactDOM.render(<App />, document.getElementById('root'));
     </script>

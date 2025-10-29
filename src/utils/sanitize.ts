@@ -6,6 +6,8 @@ export function sanitizeUser(user: User) {
         email: user.email,
         firstName: user.firstName,
         lastName: user.lastName,
+        termsId: user.termsId,
+        role: user.role,
         createdAt: user.createdAt,
         updatedAt: user.updatedAt
     };

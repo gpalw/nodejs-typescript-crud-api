@@ -38,6 +38,12 @@ export const userController = {
     }),
 
     update: asyncHandler(async (req: Request, res: Response) => {
+        if (!req.user) {
+            throw new HttpError(401, 'Unauthorized user is empty');
+        }
+        if (req.user.email !== req.params.email && req.user.role !== 'admin') {
+            throw new HttpError(403, 'Forbidden: You can only update your own account');
+        }
         const email = req.params.email;
         const updated = await userService.updateUser(email, req.body);
         res.json(updated);

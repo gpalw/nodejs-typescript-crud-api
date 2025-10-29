@@ -6,6 +6,7 @@ import { HttpError } from '../utils/errors';
 import { UserQueryOptions } from '../types/user.types';
 import { getPagination } from '../utils/pagination.utils';
 import { User } from '@prisma/client';
+import { UserPayload } from '../types/auth.types';
 
 export const userService = {
     async loginUser(email: string, plainPassword: string) {
@@ -21,12 +22,18 @@ export const userService = {
             throw new HttpError(401, 'Invalid credentials');
         }
 
-        const payload = sanitizeUser(user);
-        const secret = process.env.JWT_SECRET || 'YOUR_SECRET_KEY_REPLACE_THIS';
+        const payload: UserPayload = {
+            id: user.id,
+            email: user.email,
+            termsId: user.termsId,
+            role: user.role,
+        };
+        const secret = process.env.JWT_SECRET!;
 
         const token = jwt.sign(payload, secret, {
             expiresIn: '1d',
         });
+
         return token;
     },
 
@@ -162,6 +169,39 @@ export const userService = {
         });
         return sanitizeUser(deleted);
     },
+
+    async createDemoUsers(count: number) {
+        const usersToCreate = [];
+
+        const batchId = Math.random().toString(36).substring(2, 8); // demo "a4f8de"
+        const hashed = await hashPassword(`Password123!`);
+        for (let i = 0; i < count; i++) {
+            const email = `demo_${batchId}_${i + 1}@liangwendev.com`;
+
+            usersToCreate.push({
+                firstName: 'Demo',
+                lastName: `User ${batchId}-${i + 1}`,
+                email: email,
+                password: hashed,
+                role: 'user'
+            });
+        }
+
+        try {
+            const createOperations = usersToCreate.map(user =>
+                prisma.user.create({ data: user })
+            );
+
+            const newUsers = await prisma.$transaction(createOperations);
+
+            return { success: true, count: newUsers.length };
+
+        } catch (error) {
+            console.error("Batch creation failed:", error);
+            throw new HttpError(409, 'Batch creation failed, possible duplicate email.');
+        }
+    },
+
 };
 async function validateAndFetchTerms(user: User, newTermId: string | null) {
     if (newTermId === undefined || newTermId === null || user.termsId === newTermId) {
